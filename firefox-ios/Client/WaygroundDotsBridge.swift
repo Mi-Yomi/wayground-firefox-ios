@@ -155,9 +155,9 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
     private func perform(_ op: String, input: [String: Any], context: DotsContext) async throws -> Any {
         switch op {
         case "get":
-            var state = UserDefaults.standard.dictionary(forKey: storeKey) ?? [:]
-            if let config = try readConfig() { state["aiConfig"] = config }
             let selected = try selectedKeys(input["keys"])
+            var state = UserDefaults.standard.dictionary(forKey: storeKey) ?? [:]
+            if selected.contains("aiConfig"), let config = try readConfig() { state["aiConfig"] = config }
             return state.filter { selected.contains($0.key) }
         case "set", "remove":
             var state = UserDefaults.standard.dictionary(forKey: storeKey) ?? [:]
@@ -210,7 +210,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
                   let url = URL(string: address), let method = input["method"] as? String,
                   ["GET", "HEAD", "POST"].contains(method), let headers = input["headers"] as? [String: String]
             else { throw fail("Некорректный сетевой запрос") }
-            let config = try readConfig()
+            let config = try (Self.allowedPage(url) && ["GET", "HEAD"].contains(method) ? nil : readConfig())
             try validateRequest(url, method: method, headers: headers, config: config)
             let body = input["body"] as? String
             guard (body?.utf8.count ?? 0) <= 16 * 1024 * 1024 else { throw fail("Слишком большой запрос ИИ") }

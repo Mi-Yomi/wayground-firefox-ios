@@ -8,6 +8,9 @@ test -f "$APP/WaygroundDotsResources/page.js"
 test ! -d "$APP/PlugIns" || { echo 'Guest extensions unexpectedly embedded'; exit 1; }
 mkdir -p "$OUT/Payload"
 ditto "$APP" "$OUT/Payload/WaygroundBrowser.app"
+if /usr/libexec/PlistBuddy -c 'Print :MozDevelopmentTeam' "$OUT/Payload/WaygroundBrowser.app/Info.plist" >/dev/null 2>&1; then
+  /usr/libexec/PlistBuddy -c 'Delete :MozDevelopmentTeam' "$OUT/Payload/WaygroundBrowser.app/Info.plist"
+fi
 find "$OUT/Payload/WaygroundBrowser.app" -name '*.framework' -type d -depth -exec codesign --force --sign - {} \;
 codesign --force --sign - "$OUT/Payload/WaygroundBrowser.app"
 cd "$OUT"

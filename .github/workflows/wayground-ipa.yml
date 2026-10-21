@@ -32,6 +32,7 @@ jobs:
           xcodebuild -version
           xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -swift-version 6 wayground-dots/src/WaygroundDotsBridge.swift
           node wayground-dots/scripts/build.mjs wayground-dots/extension "$WG_DOTS_RESOURCES"
+          npm ci --prefix wayground-dots
           node --test wayground-dots/tests/*.test.mjs
       - name: Cache Swift packages
         uses: actions/cache@v4
@@ -48,7 +49,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build
-          xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -clonedSourcePackagesDirPath build/SourcePackages -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/wayground-build.log 2>&1 || { tail -n 100 build/wayground-build.log; exit 1; }
+          xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -clonedSourcePackagesDirPath build/SourcePackages -skipMacroValidation -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/wayground-build.log 2>&1 || { grep -n 'error:' build/wayground-build.log | tail -n 30; tail -n 70 build/wayground-build.log; exit 1; }
       - name: Package IPA
         run: bash wayground-dots/scripts/package.sh
       - name: Upload IPA
