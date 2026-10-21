@@ -1,0 +1,60 @@
+name: Test browser launch
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  launch:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: ios-packages-${{ runner.arch }}-${{ hashFiles('firefox-ios/Client.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'BrowserKit/Package.swift') }}
+      - name: Configure the real browser app
+        run: |
+          ./bootstrap.sh firefox
+          gem install xcodeproj -v 1.27.0 --no-document
+          node wayground-dots/scripts/build.mjs wayground-dots/extension firefox-ios/Client/WaygroundDotsResources
+          ruby wayground-dots/scripts/configure.rb
+      - name: Build and launch without a debugger or test delegate
+        run: |
+          set -euo pipefail
+          mkdir -p build/launch-diagnostics
+          xcrun simctl list devices available --json > build/launch-diagnostics/devices.json
+          DEVICE=$(python3 -c 'import json; data=json.load(open("build/launch-diagnostics/devices.json")); print(next(d["udid"] for ds in data["devices"].values() for d in ds if d["name"].startswith("iPhone") and d.get("isAvailable")))')
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build/Launch -clonedSourcePackagesDirPath build/SourcePackages -skipMacroValidation -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/launch-diagnostics/build.log 2>&1 || { tail -n 100 build/launch-diagnostics/build.log; exit 1; }
+          xcrun simctl install "$DEVICE" build/Launch/Build/Products/Debug-iphonesimulator/Client.app
+          xcrun simctl launch "$DEVICE" eu.miyomi.waygroundbrowser | tee build/launch-diagnostics/launch.txt
+          PID=$(sed -n 's/.*: \([0-9][0-9]*\)$/\1/p' build/launch-diagnostics/launch.txt)
+          test -n "$PID"
+          sleep 20
+          xcrun simctl io "$DEVICE" screenshot build/launch-diagnostics/first-launch.png
+          xcrun simctl spawn "$DEVICE" log show --last 2m --style compact --predicate 'process == "Client"' > build/launch-diagnostics/runtime.log
+          xcrun simctl spawn "$DEVICE" kill -0 "$PID"
+          xcrun simctl terminate "$DEVICE" eu.miyomi.waygroundbrowser
+          xcrun simctl launch "$DEVICE" eu.miyomi.waygroundbrowser | tee build/launch-diagnostics/relaunch.txt
+          PID=$(sed -n 's/.*: \([0-9][0-9]*\)$/\1/p' build/launch-diagnostics/relaunch.txt)
+          test -n "$PID"
+          sleep 10
+          xcrun simctl io "$DEVICE" screenshot build/launch-diagnostics/relaunch.png
+          xcrun simctl spawn "$DEVICE" kill -0 "$PID"
+      - name: Collect crash reports
+        if: always()
+        run: |
+          mkdir -p build/launch-diagnostics/crashes
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -name 'Client*' -exec cp {} build/launch-diagnostics/crashes/ \; 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Wayground-launch-diagnostics
+          path: build/launch-diagnostics
