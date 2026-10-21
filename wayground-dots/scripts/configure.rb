@@ -7,6 +7,12 @@ project = Xcodeproj::Project.open(File.join(root, 'firefox-ios/Client.xcodeproj'
 client = project.targets.find { |target| target.name == 'Client' }
 raise 'Client target missing' unless client
 FileUtils.cp(File.join(root, 'wayground-dots/src/WaygroundDotsBridge.swift'), File.join(root, 'firefox-ios/Client/WaygroundDotsBridge.swift'))
+%w[ChatGPTProtocol ChatGPTConnection].each do |name|
+  FileUtils.cp(File.join(root, "wayground-dots/src/#{name}.swift"), File.join(root, "firefox-ios/Client/#{name}.swift"))
+  file = project.files.find { |entry| entry.path == "Client/#{name}.swift" }
+  file ||= project.main_group.new_file("Client/#{name}.swift")
+  client.source_build_phase.add_file_reference(file, true)
+end
 
 source = project.files.find { |file| file.path == 'Client/WaygroundDotsBridge.swift' }
 source ||= project.main_group.new_file('Client/WaygroundDotsBridge.swift')
@@ -34,7 +40,7 @@ project.save
 info_path = File.join(root, 'firefox-ios/Client/Info.plist')
 info = Xcodeproj::Plist.read_from_path(info_path)
 info.delete('MozDevelopmentTeam')
-info['CFBundleVersion'] = '2'
+info['CFBundleVersion'] = '3'
 Xcodeproj::Plist.write_to_path(info, info_path)
 icon_dir = File.join(root, 'firefox-ios/Client/Assets/AppIcons.xcassets/WaygroundIcon.appiconset')
 FileUtils.mkdir_p(icon_dir)

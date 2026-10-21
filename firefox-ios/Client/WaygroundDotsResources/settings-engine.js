@@ -52,6 +52,19 @@
     action: {onClicked: {addListener() {}}}
   };
   let sequence = 0;
+  browser.waygroundCodex = {
+    async request(action, values = {}, signal) {
+      const id = ++sequence;
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const abort = () => { void call('cancel', {id}).catch(() => {}); };
+      signal?.addEventListener('abort', abort, {once: true});
+      try {
+        const value = await call('chatgpt', {...values, action, id});
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        return value;
+      } finally { signal?.removeEventListener('abort', abort); }
+    }
+  };
   globalThis.fetch = async (url, init = {}) => {
     const id = ++sequence, signal = init.signal;
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -671,6 +684,7 @@ globalThis.WGQuiz={ImportError,parseQuizId,importQuiz,requestJson,normalizeQuiz,
       })().finally(()=>{if(jobs.get(tabId)===job)jobs.delete(tabId);});
       jobs.set(tabId,job);return job.promise;
     }
+    browser.storage.onChanged.addListener(changes=>{if(changes.aiConfig||changes.chatgptSession)clear();});
     browser.tabs?.onRemoved?.addListener(tabId=>{cancel(tabId);results.delete(tabId);rates.delete(tabId);});
     return {handle:(message,sender)=>handle(message,sender).catch(error),publicConfig:async()=>WGAI.publicConfig(await saved())};
   }
@@ -724,7 +738,7 @@ globalThis.WGQuiz={ImportError,parseQuizId,importQuiz,requestJson,normalizeQuiz,
       });writes=task;return task;
     };
     async function fingerprint(input,config){
-      const bytes=new TextEncoder().encode(JSON.stringify([input,config.provider,config.endpoint,config.model,config.apiKey,config.images]));
+      const bytes=new TextEncoder().encode(JSON.stringify([input,config.provider,config.endpoint,config.model,config.apiKey,config.images,config.reasoningEffort??'']));
       return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
     }
     function validResult(result,input){
@@ -744,7 +758,7 @@ globalThis.WGQuiz={ImportError,parseQuizId,importQuiz,requestJson,normalizeQuiz,
         input=WGAI.input(message.input);const raw=(await browser.storage.local.get('aiConfig')).aiConfig;
         if(!raw?.enabled)return implementation.handle(message,sender);
         config=WGAI.config(raw);key=await fingerprint(input,config);
-        const origins=[WGAI.originPermission(config.endpoint),...(config.images?['https://*.quizizz.com/*','https://*.wayground.com/*']:[])];
+        const origins=[...(config.provider==='codex'?[]:[WGAI.originPermission(config.endpoint)]),...(config.images?['https://*.quizizz.com/*','https://*.wayground.com/*']:[])];
         if(!await browser.permissions.contains({origins}))return implementation.handle(message,sender);
         await writes.catch(()=>{});
         const records=(await browser.storage.local.get(cacheKey))[cacheKey];
@@ -756,12 +770,42 @@ globalThis.WGQuiz={ImportError,parseQuizId,importQuiz,requestJson,normalizeQuiz,
         await mutate(records=>epoch===generation?[...records.filter(record=>record.tabId!==tabId),{tabId,key,time:now(),result:response.result}]:null).catch(()=>{});
       return response;
     }
+    browser.storage.onChanged.addListener(changes=>{if(changes.chatgptSession){generation++;void mutate(()=>[]).catch(()=>{});}});
     browser.tabs?.onRemoved?.addListener(tabId=>{void mutate(records=>records.filter(record=>record.tabId!==tabId)).catch(()=>{});});
     return {handle,publicConfig:()=>implementation.publicConfig()};
   }
   const create=WGAIBackground.create;
   WGAIBackground.create=options=>decorate(create(options),options);
   globalThis.WGIOSAI={decorate};
+})();
+
+(() => {
+  'use strict';
+  WGAI.providers.codex = {label: 'ChatGPT · вход без API-ключа', endpoint: 'codex:local'};
+  const config = WGAI.config;
+  WGAI.config = (raw, previous = {}) => {
+    if (raw?.provider !== 'codex') return config(raw, previous);
+    const model = typeof raw.model === 'string' ? raw.model.trim() : '';
+    const reasoningEffort = raw.reasoningEffort ?? '';
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,149}$/.test(model)) throw new Error('Выберите доступную модель ChatGPT');
+    if (!['', ...WGAI.codexEfforts].includes(reasoningEffort)) throw new Error('Некорректное усилие модели');
+    return {provider: 'codex', endpoint: 'codex:local', model, reasoningEffort, fastMode: false, apiKey: '', enabled: raw.enabled === true, images: raw.images === true};
+  };
+  const publicConfig = WGAI.publicConfig;
+  WGAI.publicConfig = value => {
+    const result = publicConfig(value);
+    if (value?.provider === 'codex') result.reasoningEffort = value.reasoningEffort ?? '';
+    return result;
+  };
+  globalThis.WGCodex = {create: browser => ({
+    status: () => browser.waygroundCodex.request('status'),
+    login: () => browser.waygroundCodex.request('login'),
+    logout: () => browser.waygroundCodex.request('logout'),
+    models: () => browser.waygroundCodex.request('models'),
+    async suggest(config, input, signal) {
+      return WGAI.result(await browser.waygroundCodex.request('suggest', {config, input}, signal), input);
+    }
+  })};
 })();
 
 (() => {

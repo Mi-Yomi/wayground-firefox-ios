@@ -52,6 +52,19 @@
     action: {onClicked: {addListener() {}}}
   };
   let sequence = 0;
+  browser.waygroundCodex = {
+    async request(action, values = {}, signal) {
+      const id = ++sequence;
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const abort = () => { void call('cancel', {id}).catch(() => {}); };
+      signal?.addEventListener('abort', abort, {once: true});
+      try {
+        const value = await call('chatgpt', {...values, action, id});
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        return value;
+      } finally { signal?.removeEventListener('abort', abort); }
+    }
+  };
   globalThis.fetch = async (url, init = {}) => {
     const id = ++sequence, signal = init.signal;
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');

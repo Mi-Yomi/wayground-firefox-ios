@@ -82,6 +82,7 @@
       })().finally(()=>{if(jobs.get(tabId)===job)jobs.delete(tabId);});
       jobs.set(tabId,job);return job.promise;
     }
+    browser.storage.onChanged.addListener(changes=>{if(changes.aiConfig||changes.chatgptSession)clear();});
     browser.tabs?.onRemoved?.addListener(tabId=>{cancel(tabId);results.delete(tabId);rates.delete(tabId);});
     return {handle:(message,sender)=>handle(message,sender).catch(error),publicConfig:async()=>WGAI.publicConfig(await saved())};
   }

@@ -40,14 +40,14 @@ jobs:
           sleep 20
           xcrun simctl io "$DEVICE" screenshot build/launch-diagnostics/first-launch.png
           xcrun simctl spawn "$DEVICE" log show --last 2m --style compact --predicate 'process == "Client"' > build/launch-diagnostics/runtime.log
-          xcrun simctl spawn "$DEVICE" kill -0 "$PID"
+          /bin/kill -0 "$PID"
           xcrun simctl terminate "$DEVICE" eu.miyomi.waygroundbrowser
           xcrun simctl launch "$DEVICE" eu.miyomi.waygroundbrowser | tee build/launch-diagnostics/relaunch.txt
           PID=$(sed -n 's/.*: \([0-9][0-9]*\)$/\1/p' build/launch-diagnostics/relaunch.txt)
           test -n "$PID"
           sleep 10
           xcrun simctl io "$DEVICE" screenshot build/launch-diagnostics/relaunch.png
-          xcrun simctl spawn "$DEVICE" kill -0 "$PID"
+          /bin/kill -0 "$PID"
       - name: Collect crash reports
         if: always()
         run: |

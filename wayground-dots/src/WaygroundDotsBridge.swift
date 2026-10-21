@@ -18,6 +18,12 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
     private var sequence = Int.random(in: 1_000_000...2_000_000_000)
     private var approvedOrigins = Set<String>()
     private var jobs = [String: Task<DotsHTTPResponse, Error>]()
+    private var chatgptJobs = [String: Task<Data, Error>]()
+    private lazy var chatgpt: ChatGPTConnection = {
+        let connection = ChatGPTConnection()
+        connection.onSessionChanged = { [weak self] in self?.resetChatGPT() }
+        return connection
+    }()
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -134,6 +140,16 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
     }
 
     private func validateConfig(_ config: [String: Any], settings: Bool) throws {
+        if config["provider"] as? String == "codex" {
+            guard config["endpoint"] as? String == "codex:local", config["apiKey"] as? String == "",
+                  let model = config["model"] as? String,
+                  model.range(of: "^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,149}$", options: .regularExpression) != nil,
+                  let effort = config["reasoningEffort"] as? String,
+                  ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"].contains(effort),
+                  config["fastMode"] as? Bool == false, config["enabled"] is Bool, config["images"] is Bool
+            else { throw fail("Некорректные настройки ChatGPT") }
+            if config["enabled"] as? Bool == true, try !chatgpt.hasSharingSession() { throw fail("Сначала войдите через ChatGPT и разрешите использование плана") }
+        } else {
         guard let provider = config["provider"] as? String, ["openai", "gemini", "compatible"].contains(provider),
               let endpoint = config["endpoint"] as? String, let url = URL(string: endpoint),
               url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
@@ -143,6 +159,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
               !token.contains(where: { $0.isWhitespace || $0.isNewline }),
               config["enabled"] is Bool, config["images"] is Bool
         else { throw fail("Некорректные настройки ИИ") }
+        }
         if !settings {
             guard var previous = try readConfig() else { throw fail("Ключ ИИ задаётся только в настройках") }
             var proposed = config
@@ -175,6 +192,8 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
                     try writeConfig(nil)
                 }
                 for job in jobs.values { job.cancel() }
+                for job in chatgptJobs.values { job.cancel() }
+                if context.settings, op == "set", values["aiConfig"] != nil { state.removeValue(forKey: "chatgpt-needs-enable") }
             }
             var changes = [String: Any]()
             for key in changed {
@@ -205,6 +224,36 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
             guard !context.settings, let view = context.webView else { throw fail("Настройки уже открыты") }
             try openSettings(from: view)
             return true
+        case "chatgpt":
+            guard let action = input["action"] as? String else { throw fail("Нет действия ChatGPT") }
+            if action == "status" { return try chatgpt.status(includeAccounts: context.settings) }
+            if action == "suggest" {
+                guard let id = input["id"] as? Int, id > 0, let config = try readConfig(),
+                      config["provider"] as? String == "codex", config["enabled"] as? Bool == true || context.settings,
+                      (UserDefaults.standard.dictionary(forKey: storeKey)?["chatgpt-needs-enable"] as? Bool != true || context.settings),
+                      let supplied = input["config"] as? [String: Any], supplied["model"] as? String == config["model"] as? String,
+                      supplied["reasoningEffort"] as? String == config["reasoningEffort"] as? String,
+                      supplied["images"] as? Bool == config["images"] as? Bool,
+                      let question = input["input"] as? [String: Any],
+                      try JSONSerialization.data(withJSONObject: question).count <= 16 * 1024 * 1024
+                else { throw fail("Недопустимый запрос ChatGPT") }
+                let key = "\(context.id):\(id)"
+                guard chatgptJobs[key] == nil, chatgptJobs.count < 12 else { throw fail("Слишком много запросов ChatGPT") }
+                let job = Task { @MainActor in try await chatgpt.suggest(["config": config, "input": question]) }
+                chatgptJobs[key] = job
+                defer { chatgptJobs.removeValue(forKey: key) }
+                return try JSONSerialization.jsonObject(with: await job.value)
+            }
+            guard context.settings else { throw fail("Вход и аккаунты доступны только в настройках") }
+            if action == "usage" { return ["opened": await UIApplication.shared.open(URL(string: "https://chatgpt.com/settings/usage")!)] }
+            if action == "models" { return ["models": try await chatgpt.models()] }
+            if action == "login" {
+                guard let window = context.webView?.window else { throw fail("Окно настроек закрыто") }
+                try await chatgpt.login(window: window, newAccount: input["newAccount"] as? Bool == true)
+            } else if action == "select", let id = input["accountID"] as? String { try chatgpt.select(id) }
+            else if action == "logout" { return ["revoked": try await chatgpt.logout()] }
+            else { throw fail("Неизвестное действие ChatGPT") }
+            return try chatgpt.status(includeAccounts: true)
         case "fetch":
             guard let id = input["id"] as? Int, let address = input["url"] as? String,
                   let url = URL(string: address), let method = input["method"] as? String,
@@ -226,10 +275,26 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
             let response = try await job.value
             return ["status": response.status, "headers": response.headers, "body": response.body]
         case "cancel":
-            if let id = input["id"] as? Int { jobs["\(context.id):\(id)"]?.cancel() }
+            if let id = input["id"] as? Int {
+                jobs["\(context.id):\(id)"]?.cancel()
+                chatgptJobs["\(context.id):\(id)"]?.cancel()
+            }
             return true
         default: throw fail("Неизвестная команда Dots")
         }
+    }
+
+    private func resetChatGPT() {
+        for job in chatgptJobs.values { job.cancel() }
+        var state = UserDefaults.standard.dictionary(forKey: storeKey) ?? [:]
+        state.removeValue(forKey: "ios.ai-results.v1")
+        state["chatgpt-needs-enable"] = true
+        if var config = try? readConfig(), config["provider"] as? String == "codex" {
+            config["enabled"] = false
+            try? writeConfig(config)
+        }
+        UserDefaults.standard.set(state, forKey: storeKey)
+        broadcast(["aiConfig": ["newValue": true], "chatgptSession": ["newValue": UUID().uuidString]])
     }
 
     private func validateRequest(_ url: URL, method: String, headers: [String: String], config: [String: Any]?) throws {

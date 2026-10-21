@@ -19,7 +19,7 @@
       });writes=task;return task;
     };
     async function fingerprint(input,config){
-      const bytes=new TextEncoder().encode(JSON.stringify([input,config.provider,config.endpoint,config.model,config.apiKey,config.images]));
+      const bytes=new TextEncoder().encode(JSON.stringify([input,config.provider,config.endpoint,config.model,config.apiKey,config.images,config.reasoningEffort??'']));
       return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
     }
     function validResult(result,input){
@@ -39,7 +39,7 @@
         input=WGAI.input(message.input);const raw=(await browser.storage.local.get('aiConfig')).aiConfig;
         if(!raw?.enabled)return implementation.handle(message,sender);
         config=WGAI.config(raw);key=await fingerprint(input,config);
-        const origins=[WGAI.originPermission(config.endpoint),...(config.images?['https://*.quizizz.com/*','https://*.wayground.com/*']:[])];
+        const origins=[...(config.provider==='codex'?[]:[WGAI.originPermission(config.endpoint)]),...(config.images?['https://*.quizizz.com/*','https://*.wayground.com/*']:[])];
         if(!await browser.permissions.contains({origins}))return implementation.handle(message,sender);
         await writes.catch(()=>{});
         const records=(await browser.storage.local.get(cacheKey))[cacheKey];
@@ -51,6 +51,7 @@
         await mutate(records=>epoch===generation?[...records.filter(record=>record.tabId!==tabId),{tabId,key,time:now(),result:response.result}]:null).catch(()=>{});
       return response;
     }
+    browser.storage.onChanged.addListener(changes=>{if(changes.chatgptSession){generation++;void mutate(()=>[]).catch(()=>{});}});
     browser.tabs?.onRemoved?.addListener(tabId=>{void mutate(records=>records.filter(record=>record.tabId!==tabId)).catch(()=>{});});
     return {handle,publicConfig:()=>implementation.publicConfig()};
   }

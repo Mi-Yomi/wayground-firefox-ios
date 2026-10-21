@@ -1,18 +1,27 @@
 <!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Wayground Dots — iPhone</title><link rel="stylesheet" href="mobile.css"></head>
 <body><main>
-  <p class="eyebrow">WAYGROUND DOTS · IPHONE · 0.1.0</p><h1>Подключение ИИ</h1>
-  <p>Зелёный кружок — публичный ключ, жёлтый — предположение ИИ. Модель может ошибаться.</p>
+  <p class="eyebrow">WAYGROUND DOTS · IPHONE · BUILD 3</p><h1>Подключение ИИ</h1>
+  <p>Зелёный — публичный ключ, жёлтый — предположение ИИ. Модель может ошибаться.</p>
   <p id="current" role="status">Загружаем настройки…</p>
   <form id="connection">
     <label class="switch"><input id="enabled" type="checkbox"><span>Использовать ИИ, когда нет ключа</span></label>
-    <label for="provider">Провайдер</label><select id="provider"><option value="openai">OpenAI · Responses API</option><option value="gemini">Google Gemini</option><option value="compatible">OpenAI-совместимый API</option></select>
-    <section id="custom-endpoint" hidden><label for="endpoint">HTTPS-адрес API</label><input id="endpoint" type="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://ваш-провайдер/v1"><p class="hint">На iPhone localhost означает сам телефон. В этой сборке поддерживаются HTTPS-адреса.</p></section>
-    <label for="model">Модель</label><input id="model" type="text" maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ID модели у вашего провайдера">
-    <label for="token">API-ключ</label><input id="token" type="password" maxlength="4096" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Ключ выбранного провайдера">
-    <p class="hint">Ключ хранится в системной связке ключей iOS (Keychain). Сохранённое значение не отображается. Пустое поле оставляет прежний ключ только для того же провайдера и адреса.</p>
+    <label for="provider">Подключение</label><select id="provider"><option value="codex">ChatGPT · без API-ключа</option><option value="openai">OpenAI · API-ключ</option><option value="gemini">Google Gemini</option><option value="compatible">Совместимый API</option></select>
+    <section id="chatgpt">
+      <p id="account-status" role="status">Проверяем вход…</p>
+      <label for="account">Сохранённый аккаунт</label><select id="account"></select>
+      <div class="actions"><button type="button" id="login">Продолжить с ChatGPT</button><button type="button" id="add-account" class="secondary">Добавить аккаунт</button><button type="button" id="logout" class="secondary">Выйти</button></div>
+      <label for="codex-model">Модель аккаунта</label><select id="codex-model"><option value="">Сначала войдите через ChatGPT</option></select>
+      <button type="button" id="models" class="secondary">Обновить модели</button>
+      <label for="effort">Усилие модели</label><select id="effort"><option value="">Автоматически</option><option value="low">Низкое</option><option value="medium">Среднее</option><option value="high">Высокое</option><option value="xhigh">Очень высокое</option></select>
+      <p class="hint">Доступ зависит от аккаунта и выбранной модели. Запросы используют лимиты вашего плана ChatGPT; успешный ответ подтверждает доступ к модели. После входа выберите модель и сохраните настройки. ПК не нужен.</p>
+      <button type="button" id="usage" class="secondary">Лимиты и доступ в ChatGPT</button>
+    </section>
+    <section id="custom-endpoint" hidden><label for="endpoint">HTTPS-адрес API</label><input id="endpoint" type="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://ваш-провайдер/v1"></section>
+    <section id="api-model"><label for="model">ID модели API</label><input id="model" type="text" maxlength="150" autocomplete="off" autocapitalize="none" spellcheck="false"></section>
+    <section id="api-token"><label for="token">API-ключ</label><input id="token" type="password" maxlength="4096" autocomplete="off" autocapitalize="none" spellcheck="false"><p class="hint">Пустое поле сохраняет прежний ключ только для того же провайдера и адреса.</p></section>
     <label class="switch"><input id="images" type="checkbox"><span>Разрешить отправку изображений вопроса и вариантов</span></label>
-    <div class="actions"><button type="submit" id="save">Сохранить настройки</button><button type="button" id="test" disabled>Проверить ИИ</button><button type="button" id="remove" class="secondary">Удалить ключ и настройки</button></div>
+    <div class="actions"><button type="submit" id="save">Сохранить настройки</button><button type="button" id="test" disabled>Проверить ИИ</button><button type="button" id="remove" class="secondary">Удалить настройки ИИ</button></div>
   </form><p id="result" role="status" aria-live="polite"></p>
-  <details><summary>Как работает версия для iPhone</summary><p>Открывайте Wayground в этом браузере. Кнопка Dots внизу слева открывает панель; в ней нажмите «Подключить ИИ». Перетаскивайте кружки пальцем.</p><p>Запрос идёт напрямую выбранному API: текущий вопрос, варианты и разрешённые изображения. PIN, имя игрока и cookies Wayground в запрос ИИ не включаются. Проверка «2 + 2» расходует лимит API. ИИ не выбирает ответ за вас; срок 20 секунд не гарантируется.</p><p>Вход через локальный компонент Codex для Windows в эту сборку не входит. API-ключ и подписка ChatGPT — разные способы подключения. Сервер проекта не используется.</p><p>Готовые подсказки повторно используются до 10 минут, чтобы выгрузка страницы браузера не вызывала повторный запрос того же вопроса. Просроченные записи удаляются при следующей записи кэша; при смене настроек кэш очищается. Незавершённый запрос после закрытия браузера может быть потерян.</p></details>
+  <details><summary>О подключении</summary><p>Вход ChatGPT открывается в системном окне iOS. Пароль получает только OpenAI. Токены и API-ключи хранятся в Keychain, не в cookies или коде страницы Wayground. Для удаления авторизации используйте «Выйти».</p><p>Вопрос, варианты и разрешённые изображения отправляются напрямую выбранному провайдеру. PIN, имя игрока и cookies Wayground не включаются. ИИ не выбирает ответы за вас. Проверка «2 + 2» использует лимиты выбранного подключения; время ответа 20 секунд не гарантируется.</p><p>Это вход через ChatGPT для использования моделей вашего плана. Codex CLI на iPhone не запускается. Сервер проекта и ПК не используются.</p></details>
 </main><script src="settings-engine.js"></script><script src="options.js"></script></body></html>

@@ -1,45 +1,103 @@
 (() => {
   'use strict';
-  const $=id=>document.getElementById(id);let saved=null,busy=false;
-  const labels={openai:'OpenAI',gemini:'Google Gemini',compatible:'Совместимый API'};
-  function providerChanged(){
-    const custom=$('provider').value==='compatible';$('custom-endpoint').hidden=!custom;$('endpoint').required=custom;
-    if(saved?.provider!==$('provider').value){$('token').value='';$('model').value='';$('endpoint').value='';}
+  const $ = id => document.getElementById(id);
+  const labels = {codex: 'ChatGPT', openai: 'OpenAI API', gemini: 'Google Gemini', compatible: 'Совместимый API'};
+  let saved = null, account = null, busy = false, catalog = [];
+  const message = async value => {
+    const response = await browser.runtime.sendMessage(value);
+    if (!response?.ok) throw new Error(response?.error || 'Действие не выполнено');
+    return response;
+  };
+  function providerChanged() {
+    const codex = $('provider').value === 'codex', custom = $('provider').value === 'compatible';
+    $('chatgpt').hidden = !codex;
+    $('api-model').hidden = codex; $('model').required = !codex;
+    $('api-token').hidden = codex;
+    $('custom-endpoint').hidden = !custom; $('endpoint').required = custom;
   }
-  function render(settings){
-    saved=settings;
-    const supported=Object.hasOwn(labels,settings?.provider);
-    $('provider').value=supported?settings.provider:'openai';$('model').value=supported?settings.model||'':'';
-    $('endpoint').value=supported&&settings.provider==='compatible'?settings.endpoint:'';
-    $('token').value='';$('enabled').checked=settings?.enabled===true;$('images').checked=settings?.images===true;providerChanged();
-    $('test').disabled=!settings?.configured||!supported;
-    $('current').textContent=settings?.configured&&supported?(settings.enabled?'ИИ включён':'ИИ выключен')+' · '+labels[settings.provider]+' · '+settings.model:'Укажите модель и собственный API-ключ. ИИ по умолчанию выключен.';
+  function paint(settings, initial = false) {
+    saved = settings;
+    if (initial) {
+      $('provider').value = settings?.configured && labels[settings.provider] ? settings.provider : 'codex';
+      $('model').value = settings?.provider !== 'codex' ? settings?.model || '' : '';
+      $('endpoint').value = settings?.provider === 'compatible' ? settings.endpoint : '';
+      $('effort').value = settings?.reasoningEffort || '';
+    }
+    $('enabled').checked = settings?.enabled === true;
+    $('images').checked = settings?.images === true;
+    $('test').disabled = !settings?.configured;
+    $('current').textContent = settings?.configured ? (settings.enabled ? 'ИИ включён' : 'ИИ выключен') + ' · ' + labels[settings.provider] + ' · ' + settings.model : 'Выберите подключение и сохраните настройки.';
+    providerChanged();
   }
-  async function run(job,message){
-    if(busy)return;busy=true;for(const button of document.querySelectorAll('button'))button.disabled=true;
-    $('result').textContent='Выполняется…';
-    try{const response=await job();if(!response?.ok)throw new Error(response?.error||'Не удалось выполнить действие');if(response.settings)render(response.settings);$('result').textContent=message(response);}
-    catch(error){$('result').textContent=error.message;}
-    finally{busy=false;for(const button of document.querySelectorAll('button'))button.disabled=false;$('test').disabled=!saved?.configured;}
+  async function refreshAccounts(loadModels = true) {
+    account = await browser.waygroundCodex.request('status');
+    $('account').replaceChildren(...(account.accounts || []).map(item => {
+      const option = document.createElement('option'); option.value = item.id; option.textContent = item.label + (item.connected ? '' : ' · нужен вход'); return option;
+    }));
+    $('account').value = account.activeID || '';
+    $('account-status').textContent = !account.connected ? 'ChatGPT не подключён' : account.planUsageAllowed ? 'ChatGPT подключён · использование плана разрешено' : 'Вход выполнен, но использование плана не разрешено. Проверьте доступ в ChatGPT.';
+    if (loadModels && account.planUsageAllowed) {
+      const response = await browser.waygroundCodex.request('models');
+      catalog = response.models || [];
+      const selected = $('codex-model').value || (saved?.provider === 'codex' ? saved.model : '');
+      $('codex-model').replaceChildren(...catalog.map(item => {
+        const option = document.createElement('option'); option.value = item.id; option.textContent = item.displayName; return option;
+      }));
+      $('codex-model').value = catalog.some(item => item.id === selected) ? selected : catalog[0]?.id || '';
+      if (!catalog.length) throw new Error('OpenAI не вернул доступные модели для списка');
+    } else if (!account.planUsageAllowed) { catalog = []; $('codex-model').replaceChildren(); }
   }
-  $('provider').addEventListener('change',providerChanged);
-  $('connection').addEventListener('submit',event=>{
-    event.preventDefault();if(busy)return;let settings,origins;
-    try{
-      const provider=$('provider').value,endpoint=WGAI.endpoint($('endpoint').value,provider),model=$('model').value.trim(),apiKey=$('token').value.trim();
-      if(new URL(endpoint).protocol!=='https:')throw new Error('Для API на iPhone нужен HTTPS-адрес');
-      if(!/^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,149}$/.test(model))throw new Error('Укажите ID модели вашего провайдера');
-      if(!apiKey&&!(saved?.hasKey&&saved.provider===provider&&saved.endpoint===endpoint))throw new Error('Укажите API-ключ выбранного провайдера');
-      settings={provider,endpoint,model,apiKey,enabled:$('enabled').checked===true,images:$('images').checked===true};
-      origins=[WGAI.originPermission(endpoint),...(settings.images?['https://*.quizizz.com/*','https://*.wayground.com/*']:[])];
-    }catch(error){$('result').textContent=error.message;return;}
-    // Safari requires the permission request to originate in the user's gesture.
-    const permission=browser.permissions.request({origins});
-    void run(async()=>{if(!await permission)throw new Error('Safari не предоставил доступ к выбранному API');return browser.runtime.sendMessage({type:'WG_AI_SAVE',settings});},()=> 'Сохранено. Открытая страница Wayground получит настройки автоматически.');
+  async function run(job) {
+    if (busy) return; busy = true;
+    for (const button of document.querySelectorAll('button')) button.disabled = true;
+    $('result').textContent = 'Выполняется…';
+    try { $('result').textContent = await job(); }
+    catch (error) { $('result').textContent = error.message; }
+    finally { busy = false; for (const button of document.querySelectorAll('button')) button.disabled = false; $('test').disabled = !saved?.configured; }
+  }
+  $('provider').addEventListener('change', () => { providerChanged(); if ($('provider').value === 'codex') void run(async () => { await refreshAccounts(); return 'Список аккаунтов обновлён'; }); });
+  for (const id of ['login', 'add-account']) $(id).addEventListener('click', () => void run(async () => {
+    await browser.waygroundCodex.request('login', {newAccount: id === 'add-account'});
+    paint((await message({type: 'WG_AI_STATUS'})).settings);
+    await refreshAccounts();
+    return 'Вход завершён. Выберите модель, включите ИИ и сохраните настройки.';
+  }));
+  $('account').addEventListener('change', () => void run(async () => {
+    await browser.waygroundCodex.request('select', {accountID: $('account').value});
+    paint((await message({type: 'WG_AI_STATUS'})).settings);
+    await refreshAccounts(); return 'Аккаунт выбран. Сохраните настройки для включения ИИ.';
+  }));
+  $('models').addEventListener('click', () => void run(async () => { await refreshAccounts(); return 'Модели обновлены'; }));
+  $('logout').addEventListener('click', () => void run(async () => {
+    const result = await browser.waygroundCodex.request('logout');
+    paint((await message({type: 'WG_AI_STATUS'})).settings); await refreshAccounts(false);
+    return result.revoked ? 'Выход выполнен. Регистрация сохранена для следующего входа.' : 'Локальный вход удалён. Отзыв сессии на сервере не подтверждён: отключите приложение в настройках ChatGPT.';
+  }));
+  $('usage').addEventListener('click', () => void run(async () => { await browser.waygroundCodex.request('usage'); return 'Открыты настройки ChatGPT'; }));
+  $('connection').addEventListener('submit', event => {
+    event.preventDefault();
+    void run(async () => {
+      const provider = $('provider').value;
+      let settings, origins;
+      if (provider === 'codex') {
+        if (!account?.planUsageAllowed) throw new Error('Войдите через ChatGPT и разрешите использование плана');
+        if (!catalog.some(item => item.id === $('codex-model').value)) throw new Error('Обновите модели и выберите модель аккаунта');
+        settings = {provider, model: $('codex-model').value, reasoningEffort: $('effort').value, enabled: $('enabled').checked, images: $('images').checked};
+        origins = settings.images ? ['https://*.quizizz.com/*', 'https://*.wayground.com/*'] : [];
+      } else {
+        const endpoint = WGAI.endpoint($('endpoint').value, provider);
+        settings = {provider, endpoint, model: $('model').value.trim(), apiKey: $('token').value.trim(), enabled: $('enabled').checked, images: $('images').checked};
+        origins = [WGAI.originPermission(endpoint), ...(settings.images ? ['https://*.quizizz.com/*', 'https://*.wayground.com/*'] : [])];
+      }
+      if (!await browser.permissions.request({origins})) throw new Error('Не предоставлен доступ к API или изображениям');
+      const response = await message({type: 'WG_AI_SAVE', settings}); paint(response.settings); $('token').value = '';
+      return 'Настройки сохранены. Открытая страница Wayground получит их автоматически.';
+    });
   });
-  $('test').addEventListener('click',()=>void run(async()=>{
-    const started=Date.now(),response=await browser.runtime.sendMessage({type:'WG_AI_TEST'});return {...response,elapsedMs:Date.now()-started};
-  },response=>(response.result.status==='ready'?'Предположение ИИ: вариант '+response.result.indices.map(i=>i+1).join(', '):'ИИ не предложил ответ')+' · '+(response.elapsedMs/1000).toFixed(1)+' с. '+response.result.explanation));
-  $('remove').addEventListener('click',()=>void run(()=>browser.runtime.sendMessage({type:'WG_AI_FORGET'}),()=> 'Ключ и настройки удалены. ИИ выключен.'));
-  void browser.runtime.sendMessage({type:'WG_AI_STATUS'}).then(response=>{if(!response?.ok)throw new Error(response?.error||'Настройки недоступны');render(response.settings);}).catch(error=>{$('current').textContent=error.message;});
+  $('test').addEventListener('click', () => void run(async () => {
+    const started = Date.now(), response = await message({type: 'WG_AI_TEST'});
+    return 'Предположение ИИ: ' + response.result.indices.map(index => index + 1).join(', ') + ' · ' + ((Date.now() - started) / 1000).toFixed(1) + ' с. ' + response.result.explanation;
+  }));
+  $('remove').addEventListener('click', () => void run(async () => { paint((await message({type: 'WG_AI_FORGET'})).settings); return 'Настройки ИИ удалены. Для удаления входа ChatGPT отдельно нажмите «Выйти».'; }));
+  void run(async () => { paint((await message({type: 'WG_AI_STATUS'})).settings, true); await refreshAccounts(); return 'Настройки загружены'; });
 })();

@@ -32,7 +32,10 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -version
-          xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -swift-version 6 wayground-dots/src/WaygroundDotsBridge.swift
+          xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -swift-version 6 wayground-dots/src/ChatGPTProtocol.swift wayground-dots/src/ChatGPTConnection.swift wayground-dots/src/WaygroundDotsBridge.swift
+          mkdir -p build
+          xcrun swiftc -parse-as-library -swift-version 6 wayground-dots/src/ChatGPTProtocol.swift wayground-dots/tests/ChatGPTProtocolTests.swift -o build/chatgpt-protocol-tests
+          build/chatgpt-protocol-tests
           node wayground-dots/scripts/build.mjs wayground-dots/extension "$WG_DOTS_RESOURCES"
           npm ci --prefix wayground-dots
           node --test wayground-dots/tests/*.test.mjs
