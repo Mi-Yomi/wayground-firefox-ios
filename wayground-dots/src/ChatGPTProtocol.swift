@@ -98,6 +98,40 @@ enum ChatGPTProtocol {
         else { throw error("Проверка личности аккаунта не пройдена. Повторите вход") }
         return (subject, claims["email"] as? String ?? "Аккаунт ChatGPT")
     }
+    static func httpBody(_ data: Data, status: Int, mimeType: String?) throws -> Data {
+        guard data.count <= 2 * 1024 * 1024 else { throw error("Слишком большой ответ ChatGPT") }
+        let mime = (mimeType ?? "unknown").lowercased()
+        let safeMime = mime.range(of: "^[a-z0-9.+-]{1,50}/[a-z0-9.+-]{1,50}$", options: .regularExpression) != nil ? mime : "unknown"
+        let details = "HTTP \(status), \(safeMime), \(data.count) B"
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
+        if status == 200, ["data:", "event:", ":", "id:", "retry:"].contains(where: text.hasPrefix) {
+            var stream = ChatGPTEventStream()
+            for byte in Data((text + "\n\n").utf8) {
+                if let response = try stream.feed(byte) { return try completed(response, streamedText: stream.outputText) }
+            }
+            throw error("Поток ChatGPT прерван до завершения ответа [CGPT_STREAM_END; \(details)]")
+        }
+        guard let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+        else { throw error("OpenAI вернул не JSON и не поток событий [CGPT_HTTP_BODY; \(details)]") }
+        if let failure = value["error"], !(failure is NSNull) {
+            let fields = failure as? [String: Any] ?? [:]
+            let codes = ["code", "type", "param"].compactMap { key -> String? in
+                guard let field = fields[key] as? String,
+                      field.range(of: "^[a-zA-Z0-9_.\\[\\]-]{1,100}$", options: .regularExpression) != nil else { return nil }
+                return "\(key)=\(field)"
+            }.joined(separator: ", ")
+            throw error("OpenAI отклонил запрос [CGPT_API_ERROR; \(details)\(codes.isEmpty ? "" : "; " + codes)]")
+        }
+        guard status == 200 else { throw error("OpenAI отклонил запрос [CGPT_HTTP_STATUS; \(details)]") }
+        if value["type"] as? String == "response.completed", let response = value["response"] as? [String: Any] {
+            return try completed(response)
+        }
+        guard value["object"] as? String == "response" else {
+            let shape = ["error", "message", "code", "type", "status", "object", "data", "response", "output", "choices", "detail"].filter { value[$0] != nil }.joined(separator: ",")
+            throw error("OpenAI вернул JSON неизвестного формата [CGPT_HTTP_JSON; \(details); fields=\(shape)]")
+        }
+        return try completed(value)
+    }
     static func completed(_ response: [String: Any], streamedText: String = "") throws -> Data {
         guard response["status"] as? String == "completed", response["incomplete_details"] == nil || response["incomplete_details"] is NSNull,
               response["error"] == nil || response["error"] is NSNull

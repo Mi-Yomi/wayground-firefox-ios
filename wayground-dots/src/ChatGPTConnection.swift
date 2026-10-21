@@ -261,14 +261,23 @@ final class ChatGPTConnection: NSObject, ASWebAuthenticationPresentationContextP
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw ChatGPTProtocol.error("OpenAI вернул недопустимый HTTP-ответ [CGPT_HTTP]") }
-        guard http.statusCode == 200 else { throw ChatGPTProtocol.error("OpenAI отклонил запрос (HTTP \(http.statusCode)): проверьте вход, модель и лимиты плана") }
-        guard http.mimeType?.lowercased() == "text/event-stream" else { throw ChatGPTProtocol.error("OpenAI вернул ответ вместо потока событий [CGPT_HTTP_TYPE]") }
+        guard http.expectedContentLength <= 2 * 1024 * 1024 else { throw ChatGPTProtocol.error("Слишком большой ответ ChatGPT") }
+        let streaming = http.statusCode == 200 && http.mimeType?.lowercased() == "text/event-stream"
+        var buffered = Data()
         var stream = ChatGPTEventStream()
         for try await byte in bytes {
             try Task.checkCancellation()
             guard epoch == generation else { throw ChatGPTProtocol.error("Аккаунт ChatGPT изменился; подсказка отменена") }
-            if let completed = try stream.feed(byte) { return try ChatGPTProtocol.completed(completed, streamedText: stream.outputText) }
+            if streaming {
+                if let completed = try stream.feed(byte) { return try ChatGPTProtocol.completed(completed, streamedText: stream.outputText) }
+            } else {
+                guard buffered.count < 2 * 1024 * 1024 else { throw ChatGPTProtocol.error("Слишком большой ответ ChatGPT") }
+                buffered.append(byte)
+            }
         }
+        try Task.checkCancellation()
+        guard epoch == generation else { throw ChatGPTProtocol.error("Аккаунт ChatGPT изменился; подсказка отменена") }
+        if !streaming { return try ChatGPTProtocol.httpBody(buffered, status: http.statusCode, mimeType: http.mimeType) }
         throw ChatGPTProtocol.error("Поток ChatGPT прерван до завершения ответа")
     }
     private func bounded(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {

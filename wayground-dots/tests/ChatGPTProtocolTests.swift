@@ -113,6 +113,45 @@ struct ChatGPTProtocolTests {
             for byte in Data("data: {\"type\":\"response.failed\"}\n\n".utf8) { _ = try failed.feed(byte) }
         }
         reject { _ = try ChatGPTProtocol.completed(["status": "incomplete", "output": []]) }
-        print("ChatGPT protocol self-check passed: callback, PKCE, signatures, claims, JSON fences, streamed UTF-8 text, terminal-only acceptance and specific errors")
+        var jsonResponse = completed
+        jsonResponse["object"] = "response"
+        let jsonData = try JSONSerialization.data(withJSONObject: jsonResponse)
+        for mime in ["application/json", "application/octet-stream", "text/plain", nil] {
+            let decoded = try ChatGPTProtocol.httpBody(jsonData, status: 200, mimeType: mime)
+            precondition(decoded == completedData)
+        }
+        let envelope = try ChatGPTProtocol.httpBody(event, status: 200, mimeType: "application/json")
+        precondition(envelope == completedData)
+        let mislabeledStream = Data("\u{FEFF}event: response.completed\r\ndata: ".utf8) + event + Data("\r\n\r\n".utf8)
+        let mislabeledResult = try ChatGPTProtocol.httpBody(mislabeledStream, status: 200, mimeType: "application/json")
+        precondition(mislabeledResult == completedData)
+        let partialStream = Data("data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n".utf8)
+        reject { _ = try ChatGPTProtocol.httpBody(partialStream, status: 200, mimeType: "text/plain") }
+        reject { _ = try ChatGPTProtocol.httpBody(jsonData, status: 403, mimeType: "application/json") }
+        reject { _ = try ChatGPTProtocol.httpBody(Data("{\"object\":\"response\",\"status\":\"incomplete\",\"output\":[]}".utf8), status: 200, mimeType: "application/json") }
+        reject { _ = try ChatGPTProtocol.httpBody(Data("{\"status\":\"completed\"}".utf8), status: 200, mimeType: "application/json") }
+        reject { _ = try ChatGPTProtocol.httpBody(Data(jsonData.dropLast()), status: 200, mimeType: "application/json") }
+        reject { _ = try ChatGPTProtocol.httpBody(Data(count: 2 * 1024 * 1024 + 1), status: 200, mimeType: "application/json") }
+        for status in [200, 429] {
+            let failure = try JSONSerialization.data(withJSONObject: ["error": ["code": "subscription_sharing_usage_limit_exceeded", "type": "rate_limit_error", "param": "model", "message": "private-fixture-do-not-display"]])
+            do {
+                _ = try ChatGPTProtocol.httpBody(failure, status: status, mimeType: "application/json")
+                preconditionFailure("An API error must not be accepted as a suggestion")
+            } catch {
+                let message = error.localizedDescription
+                precondition(message.contains("CGPT_API_ERROR") && message.contains("HTTP \(status)") && message.contains("subscription_sharing_usage_limit_exceeded"))
+                precondition(!message.contains("private-fixture"))
+            }
+        }
+        for data in [Data(), Data("<html>private-fixture-do-not-display</html>".utf8)] {
+            do {
+                _ = try ChatGPTProtocol.httpBody(data, status: 200, mimeType: "text/html")
+                preconditionFailure("An empty or HTML response must not be accepted")
+            } catch {
+                precondition(error.localizedDescription.contains("CGPT_HTTP_BODY") && error.localizedDescription.contains("text/html"))
+                precondition(!error.localizedDescription.contains("private-fixture"))
+            }
+        }
+        print("ChatGPT protocol self-check passed: auth, terminal SSE, JSON HTTP responses, mislabeled SSE, API errors, HTML, truncation, size limits and private-body redaction")
     }
 }
