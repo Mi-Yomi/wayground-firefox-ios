@@ -17,7 +17,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
                                      "remoteConnection", "remoteBootstrapImported", "codexModelsCache"]
     private var sequence = 0
     private var approvedOrigins = Set<String>()
-    private var jobs = [String: Task<[String: Any], Error>]()
+    private var jobs = [String: Task<DotsHTTPResponse, Error>]()
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -72,7 +72,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage,
-                               replyHandler: @escaping (Any?, String?) -> Void) {
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard message.frameInfo.isMainFrame, let webView = message.webView,
               let context = contexts.object(forKey: webView), let input = message.body as? [String: Any],
               let op = input["op"] as? String,
@@ -163,7 +163,8 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
             var state = UserDefaults.standard.dictionary(forKey: storeKey) ?? [:]
             let values = input["values"] as? [String: Any] ?? [:]
             let changed = try selectedKeys(op == "set" ? Array(values.keys) : input["keys"])
-            guard op != "set" || (try JSONSerialization.data(withJSONObject: values)).count <= 1024 * 1024
+            let size = try JSONSerialization.data(withJSONObject: values).count
+            guard op != "set" || size <= 1024 * 1024
             else { throw fail("Данные хранилища слишком большие") }
             if changed.contains("aiConfig") {
                 if op == "set", let config = values["aiConfig"] as? [String: Any] {
@@ -222,7 +223,8 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
             let job = Task { @MainActor in try await download(request) }
             jobs[key] = job
             defer { jobs.removeValue(forKey: key) }
-            return try await job.value
+            let response = try await job.value
+            return ["status": response.status, "headers": response.headers, "body": response.body]
         case "cancel":
             if let id = input["id"] as? Int { jobs["\(context.id):\(id)"]?.cancel() }
             return true
@@ -245,7 +247,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
         else { throw fail("Запрос вне Wayground и выбранного API запрещён") }
     }
 
-    private func download(_ request: URLRequest) async throws -> [String: Any] {
+    private func download(_ request: URLRequest) async throws -> DotsHTTPResponse {
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw fail("Сервер не вернул HTTP-ответ") }
         let limit = request.httpMethod == "POST" ? 1024 * 1024 : 5 * 1024 * 1024
@@ -256,7 +258,9 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
             data.append(byte)
         }
         try Task.checkCancellation()
-        return ["status": response.statusCode, "headers": ["content-type": response.value(forHTTPHeaderField: "Content-Type") ?? ""], "body": data.base64EncodedString()]
+        return DotsHTTPResponse(status: response.statusCode,
+                                headers: ["content-type": response.value(forHTTPHeaderField: "Content-Type") ?? ""],
+                                body: data.base64EncodedString())
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -296,6 +300,12 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
         settingsView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         presenter.present(UINavigationController(rootViewController: controller), animated: true)
     }
+}
+
+private struct DotsHTTPResponse: Sendable {
+    let status: Int
+    let headers: [String: String]
+    let body: String
 }
 
 @MainActor
@@ -346,8 +356,7 @@ private final class DotsSettingsController: UIViewController, WKNavigationDelega
             self?.dismiss(animated: true)
         })
     }
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(navigationAction.request.url?.standardizedFileURL == pageURL?.standardizedFileURL ? .allow : .cancel)
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        navigationAction.request.url?.standardizedFileURL == pageURL?.standardizedFileURL ? .allow : .cancel
     }
 }
