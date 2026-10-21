@@ -147,11 +147,8 @@ public final class RustKeychain: KeychainProtocol {
     }
 
     public class func wipeKeychain() {
-        deleteKeychainSecClass(kSecClassGenericPassword) // Generic password items
-        deleteKeychainSecClass(kSecClassInternetPassword) // Internet password items
-        deleteKeychainSecClass(kSecClassCertificate) // Certificate items
-        deleteKeychainSecClass(kSecClassKey) // Cryptographic key items
-        deleteKeychainSecClass(kSecClassIdentity) // Identity items
+        // LiveContainer guests share Keychain rights; never clear another service's records.
+        sharedClientAppContainerKeychain.removeAllKeys()
     }
 
     func logAutofillStoreError(err: AutofillApiError, errorDomain: String? = nil, errorMessage: String) {
@@ -279,11 +276,6 @@ public final class RustKeychain: KeychainProtocol {
         key: String
     ) throws -> Bool {
         return try decryptString(key: key, ciphertext: canary) == text
-    }
-
-    private class func deleteKeychainSecClass(_ secClass: AnyObject) {
-        let query = [kSecClass as String: secClass]
-        SecItemDelete(query as CFDictionary)
     }
 
     private func addOrUpdateKeychainKey(_ value: String, key: String) {

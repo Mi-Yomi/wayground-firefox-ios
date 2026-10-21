@@ -6,6 +6,7 @@ root = File.expand_path('../..', __dir__)
 project = Xcodeproj::Project.open(File.join(root, 'firefox-ios/Client.xcodeproj'))
 client = project.targets.find { |target| target.name == 'Client' }
 raise 'Client target missing' unless client
+FileUtils.cp(File.join(root, 'wayground-dots/src/WaygroundDotsBridge.swift'), File.join(root, 'firefox-ios/Client/WaygroundDotsBridge.swift'))
 
 source = project.files.find { |file| file.path == 'Client/WaygroundDotsBridge.swift' }
 source ||= project.main_group.new_file('Client/WaygroundDotsBridge.swift')
@@ -27,6 +28,7 @@ client.build_configurations.each do |configuration|
   configuration.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
   configuration.build_settings['CODE_SIGN_ENTITLEMENTS'] = ''
   configuration.build_settings['ASSETCATALOG_COMPILER_APPICON_NAME'] = 'WaygroundIcon'
+  configuration.build_settings['ENABLE_DEBUG_DYLIB'] = 'NO'
 end
 project.save
 icon_dir = File.join(root, 'firefox-ios/Client/Assets/AppIcons.xcassets/WaygroundIcon.appiconset')

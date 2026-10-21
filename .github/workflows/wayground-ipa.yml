@@ -8,6 +8,7 @@ on:
       - 'firefox-ios/Client/WaygroundDots*'
       - 'BrowserKit/Sources/TabDataStore/TabFileManager.swift'
       - 'BrowserKit/Tests/TabDataStoreTests/TabFileManagerTests.swift'
+      - 'firefox-ios/Storage/RustKeychain.swift'
       - '.github/workflows/wayground-ipa.yml'
 permissions:
   contents: read
@@ -34,6 +35,7 @@ jobs:
           node wayground-dots/scripts/build.mjs wayground-dots/extension "$WG_DOTS_RESOURCES"
           npm ci --prefix wayground-dots
           node --test wayground-dots/tests/*.test.mjs
+          node wayground-dots/scripts/verify-fork.mjs
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
