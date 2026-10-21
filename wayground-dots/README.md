@@ -37,8 +37,10 @@ gem install xcodeproj -v 1.27.0 --no-document
 node wayground-dots/scripts/build.mjs wayground-dots/extension firefox-ios/Client/WaygroundDotsResources
 ruby wayground-dots/scripts/configure.rb
 node --test wayground-dots/tests/*.test.mjs
-xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= build
+xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -skipMacroValidation CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= build
 bash wayground-dots/scripts/package.sh
 ```
 
 Firefox и изменённые Swift-файлы распространяются по MPL 2.0. Происхождение Screening Choice и остальных компонентов сохранено в `THIRD_PARTY_NOTICES.txt`.
+
+В CI разрешён запуск макроса ModifiedCopy из закреплённой зависимости Firefox (`d020bf8c6432d0c6aa8428b5ca1c3225a0545b3b`); интерактивное подтверждение Xcode для него отключено флагом `-skipMacroValidation`.
