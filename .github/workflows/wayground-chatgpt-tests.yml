@@ -1,0 +1,29 @@
+name: Check ChatGPT sign-in
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-26
+    timeout-minutes: 10
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+      WG_DOTS_RESOURCES: firefox-ios/Client/WaygroundDotsResources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check native auth and run protocol regressions
+        run: |
+          mkdir -p build
+          xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -swift-version 6 wayground-dots/src/ChatGPTProtocol.swift wayground-dots/src/ChatGPTConnection.swift wayground-dots/src/WaygroundDotsBridge.swift
+          xcrun swiftc -parse-as-library -swift-version 6 wayground-dots/src/ChatGPTProtocol.swift wayground-dots/tests/ChatGPTProtocolTests.swift -o build/chatgpt-protocol-tests
+          build/chatgpt-protocol-tests
+      - name: Check Dots and account cache boundaries
+        run: |
+          node wayground-dots/scripts/build.mjs wayground-dots/extension "$WG_DOTS_RESOURCES"
+          npm ci --prefix wayground-dots
+          node --test wayground-dots/tests/*.test.mjs
+          node wayground-dots/scripts/verify-fork.mjs

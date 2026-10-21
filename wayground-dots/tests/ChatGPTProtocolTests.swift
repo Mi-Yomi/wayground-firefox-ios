@@ -37,6 +37,29 @@ struct ChatGPTProtocolTests {
         var wrongJWK = jwk
         wrongJWK["x"] = ChatGPTProtocol.base64URL(otherKey.subdata(in: 1..<33)); wrongJWK["y"] = ChatGPTProtocol.base64URL(otherKey.subdata(in: 33..<65))
         reject { _ = try ChatGPTProtocol.identity(token: signed, keys: [wrongJWK], clientID: "oaiapp_fixture", nonce: "fixture-nonce", now: 1500) }
+        let rsa = SecKeyCreateRandomKey([kSecAttrKeyType: kSecAttrKeyTypeRSA, kSecAttrKeySizeInBits: 2048] as CFDictionary, nil)!
+        let exported = SecKeyCopyExternalRepresentation(SecKeyCopyPublicKey(rsa)!, nil)! as Data
+        func field(_ data: Data, _ offset: inout Int, _ tag: UInt8) -> Data {
+            precondition(data[offset] == tag); offset += 1
+            var size = Int(data[offset]); offset += 1
+            if size & 128 != 0 {
+                let count = size & 127; size = 0
+                for _ in 0..<count { size = size * 256 + Int(data[offset]); offset += 1 }
+            }
+            let value = data.subdata(in: offset..<offset + size); offset += size
+            return value
+        }
+        var position = 0
+        let sequence = field(exported, &position, 0x30)
+        position = 0
+        let modulus = field(sequence, &position, 2), exponent = field(sequence, &position, 2)
+        let rsaJWK: [String: Any] = ["kid": "rsa-fixture", "kty": "RSA", "alg": "RS256", "n": ChatGPTProtocol.base64URL(Data(modulus.drop { $0 == 0 })), "e": ChatGPTProtocol.base64URL(exponent)]
+        let rsaHeader = try ChatGPTProtocol.base64URL(JSONSerialization.data(withJSONObject: ["alg": "RS256", "kid": "rsa-fixture"]))
+        let rsaPayload = try ChatGPTProtocol.base64URL(JSONSerialization.data(withJSONObject: claims))
+        let rsaMessage = rsaHeader + "." + rsaPayload
+        let rsaSignature = SecKeyCreateSignature(rsa, .rsaSignatureMessagePKCS1v15SHA256, Data(rsaMessage.utf8) as CFData, nil)! as Data
+        let rsaIdentity = try ChatGPTProtocol.identity(token: rsaMessage + "." + ChatGPTProtocol.base64URL(rsaSignature), keys: [rsaJWK], clientID: "oaiapp_fixture", nonce: "fixture-nonce", now: 1500)
+        precondition(rsaIdentity.subject == "fixture-user")
         var stream = ChatGPTEventStream()
         for byte in Data("data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n".utf8) {
             let partial = try stream.feed(byte)
@@ -55,6 +78,6 @@ struct ChatGPTProtocolTests {
             for byte in Data("data: {\"type\":\"response.failed\"}\n\n".utf8) { _ = try failed.feed(byte) }
         }
         reject { _ = try ChatGPTProtocol.completed(["status": "incomplete", "output": []]) }
-        print("ChatGPT protocol self-check passed: callback binding, PKCE, signed identity, claims, terminal stream and failure handling")
+        print("ChatGPT protocol self-check passed: callback binding, PKCE, RS256/ES256 identity, claims, terminal stream and failure handling")
     }
 }

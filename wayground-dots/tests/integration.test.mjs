@@ -12,7 +12,7 @@ async function until(predicate) {
   for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
   assert.ok(predicate(), 'Dots did not reach the expected state');
 }
-function player() {
+function player({codex = false} = {}) {
   const {document, window} = parseHTML('<html><body><main><div data-testid="question-container"><div id="questionText">2 + 2?</div></div><div class="options-grid" role="listbox">' + ['3', '4', '5', '6'].map((label, i) => `<button role="option" data-cy="option-${i}"><span id="optionText">${label}</span></button>`).join('') + '</div></main></body></html>');
   window.top = window;
   window.innerWidth = 390; window.innerHeight = 844;
@@ -23,9 +23,17 @@ function player() {
     return {left: this.id === 'handle' ? 280 : 20, top: this.id === 'handle' ? 40 : index >= 0 ? 230 + index * 100 : 100, width: this.id === 'handle' ? 80 : 350, height: this.id === 'handle' ? 44 : 80};
   };
   const config = {provider: 'openai', endpoint: 'https://api.openai.com/v1/responses', model: 'fixture-model', apiKey: 'fake-fixture-key', enabled: true, images: false};
-  const state = {aiConfig: config}, requests = [];
+  if (codex) Object.assign(config, {provider: 'codex', endpoint: 'codex:local', apiKey: '', reasoningEffort: '', fastMode: false});
+  const state = {aiConfig: config}, requests = [], nativeCommands = [];
+  let selectedID = '2';
   let context;
   const native = async message => {
+    if (message.op === 'chatgpt') {
+      nativeCommands.push(message);
+      if (message.action === 'status') return {value: {connected: true, planUsageAllowed: true, fastModeSupported: false}};
+      if (message.action === 'suggest') return {value: {status: 'ready', selectedChoiceIds: [selectedID], explanation: 'Fixture ChatGPT suggestion'}};
+      throw new Error('Unexpected ChatGPT command');
+    }
     if (message.op === 'get') return {value: Object.fromEntries((Array.isArray(message.keys) ? message.keys : [message.keys]).filter(key => Object.hasOwn(state, key)).map(key => [key, structuredClone(state[key])]))};
     if (message.op === 'set' || message.op === 'remove') {
       const keys = message.op === 'set' ? Object.keys(message.values) : Array.isArray(message.keys) ? message.keys : [message.keys];
@@ -49,7 +57,7 @@ function player() {
     navigator: {onLine: true}, setTimeout, clearTimeout, setInterval() {}, clearInterval() {}, MutationObserver: class {observe() {}}, getComputedStyle: element => ({display: element.style.display || 'block', visibility: 'visible', opacity: '1'})});
   vm.runInContext(bundle, context);
   const shadow = document.getElementById('wg-dots-extension').shadowRoot;
-  return {context, state, requests, document, window, shadow, colors: () => [...shadow.querySelectorAll('.dot')].map(element => element.className.split(' ').at(-1))};
+  return {context, state, requests, nativeCommands, select: id => {selectedID = id;}, document, window, shadow, colors: () => [...shadow.querySelectorAll('.dot')].map(element => element.className.split(' ').at(-1))};
 }
 
 test('bundled native path recognizes a mobile question, suggests AI and gives a public key priority', async () => {
@@ -85,4 +93,24 @@ test('native panel and pointer drag work with the bundled background in the same
   await until(() => Boolean(p.state.widgetPosition));
   assert.ok(p.state.widgetPosition.x >= 0 && p.state.widgetPosition.x <= 1);
   assert.ok(p.state.widgetPosition.y >= 0 && p.state.widgetPosition.y <= 1);
+});
+
+test('ChatGPT uses the native contract and discards cached suggestions when the account changes', async () => {
+  const p = player({codex: true});
+  await until(() => p.colors()[1] === 'ai');
+  await until(() => p.state['ios.ai-results.v1']?.length === 1);
+  assert.equal(p.requests.length, 0, 'The ChatGPT credential path must not send a JS fetch');
+  const suggestions = () => p.nativeCommands.filter(command => command.action === 'suggest');
+  assert.equal(suggestions().length, 1);
+  assert.equal(suggestions()[0].config.apiKey, '');
+  assert.equal(JSON.stringify(suggestions()[0].input).includes('game/fixture'), false);
+  p.state.aiConfig.enabled = false;
+  p.context.__wgNativeStorage({aiConfig: {newValue: true}, chatgptSession: {newValue: 'fixture-second-account'}});
+  await until(() => !p.colors().includes('ai'));
+  await until(() => p.state['ios.ai-results.v1']?.length === 0);
+  p.select('3');
+  p.state.aiConfig.enabled = true;
+  p.context.__wgNativeStorage({aiConfig: {newValue: true}});
+  await until(() => p.colors()[2] === 'ai');
+  assert.equal(suggestions().length, 2, 'The old account must not satisfy the new account from cache');
 });
