@@ -53,7 +53,9 @@ jobs:
           mkdir -p build
           xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -clonedSourcePackagesDirPath build/SourcePackages -skipMacroValidation -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/wayground-build.log 2>&1 || { grep -n 'error:' build/wayground-build.log | tail -n 30; tail -n 70 build/wayground-build.log; exit 1; }
       - name: Package IPA
-        run: bash wayground-dots/scripts/package.sh
+        run: |
+          bash wayground-dots/scripts/package.sh
+          python3 wayground-dots/scripts/verify_ipa.py build/WaygroundBrowser.ipa build/WaygroundBrowser.verification.json
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
@@ -61,6 +63,7 @@ jobs:
           path: |
             build/WaygroundBrowser.ipa
             build/WaygroundBrowser.ipa.sha256
+            build/WaygroundBrowser.verification.json
           if-no-files-found: error
           retention-days: 14
       - name: Upload build diagnostics
