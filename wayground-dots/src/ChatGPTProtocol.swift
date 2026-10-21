@@ -98,23 +98,39 @@ enum ChatGPTProtocol {
         else { throw error("Проверка личности аккаунта не пройдена. Повторите вход") }
         return (subject, claims["email"] as? String ?? "Аккаунт ChatGPT")
     }
-    static func completed(_ response: [String: Any]) throws -> Data {
+    static func completed(_ response: [String: Any], streamedText: String = "") throws -> Data {
         guard response["status"] as? String == "completed", response["incomplete_details"] == nil || response["incomplete_details"] is NSNull,
-              let output = response["output"] as? [[String: Any]] else { throw error("Ответ ChatGPT не завершён") }
+              response["error"] == nil || response["error"] is NSNull
+        else { throw error("Ответ ChatGPT не завершён [CGPT_OUTPUT_STATUS]") }
+        guard response["output"] == nil || response["output"] is [[String: Any]]
+        else { throw error("Некорректная структура ответа ChatGPT [CGPT_OUTPUT_SHAPE]") }
+        let output = response["output"] as? [[String: Any]] ?? []
         let content = output.flatMap { $0["content"] as? [[String: Any]] ?? [] }
         guard !content.contains(where: { $0["type"] as? String == "refusal" }) else { throw error("ChatGPT отклонил запрос") }
-        let text = content.filter { $0["type"] as? String == "output_text" }.compactMap { $0["text"] as? String }.joined()
-        guard let data = text.data(using: .utf8), data.count <= 128 * 1024,
-              let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let finalText = content.filter { $0["type"] as? String == "output_text" }.compactMap { $0["text"] as? String }.joined()
+        var text = (finalText.isEmpty ? streamedText : finalText).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { throw error("ChatGPT завершил запрос без текста подсказки [CGPT_OUTPUT_EMPTY]") }
+        // Match the other providers: accept one JSON code block, never extract arbitrary prose.
+        if text.hasPrefix("```"), text.hasSuffix("```"), let newline = text.firstIndex(of: "\n"),
+           ["```", "```json"].contains(text[..<newline].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            text = String(text[text.index(after: newline)..<text.index(text.endIndex, offsetBy: -3)]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let data = Data(text.utf8)
+        guard data.count <= 128 * 1024,
+              let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               ["ready", "uncertain", "unreadable"].contains(value["status"] as? String ?? ""),
               value["selectedChoiceIds"] is [String], value["explanation"] is String
-        else { throw error("ChatGPT вернул некорректную подсказку") }
+        else { throw error("ChatGPT вернул подсказку не в ожидаемом JSON-формате [CGPT_OUTPUT_JSON]") }
         return data
     }
 }
 
 struct ChatGPTEventStream {
     private var line = Data(), event = [String](), total = 0
+    private var fragments = [Int: [Int: String]]()
+    var outputText: String { fragments.keys.sorted().map { index in
+        fragments[index]!.keys.sorted().map { fragments[index]![$0]! }.joined()
+    }.joined() }
     mutating func feed(_ byte: UInt8) throws -> [String: Any]? {
         total += 1
         guard total <= 2 * 1024 * 1024, line.count <= 65536 else { throw ChatGPTProtocol.error("Слишком большой ответ ChatGPT") }
@@ -126,12 +142,26 @@ struct ChatGPTEventStream {
         let data = Data(event.joined(separator: "\n").utf8)
         event.removeAll(keepingCapacity: true)
         if String(decoding: data, as: UTF8.self) == "[DONE]" { return nil }
-        guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ChatGPTProtocol.error("Некорректный поток ChatGPT") }
+        guard let value = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { throw ChatGPTProtocol.error("OpenAI вернул повреждённое событие потока [CGPT_STREAM_JSON]") }
         let type = value["type"] as? String
         if ["error", "response.failed", "response.incomplete"].contains(type ?? "") {
             throw ChatGPTProtocol.error("ChatGPT не завершил запрос: проверьте лимиты и доступ к модели в настройках ChatGPT")
         }
-        if type == "response.completed" { return value["response"] as? [String: Any] }
+        if type == "response.refusal.delta" || type == "response.refusal.done" { throw ChatGPTProtocol.error("ChatGPT отклонил запрос") }
+        if type == "response.output_text.delta" || type == "response.output_text.done" {
+            guard let index = value["output_index"] as? Int, let part = value["content_index"] as? Int,
+                  (0..<100).contains(index), (0..<100).contains(part),
+                  let text = value[type == "response.output_text.done" ? "text" : "delta"] as? String
+            else { throw ChatGPTProtocol.error("Некорректная структура текста в потоке [CGPT_STREAM_TEXT]") }
+            let previous = fragments[index]?[part] ?? ""
+            fragments[index, default: [:]][part] = type == "response.output_text.done" ? text : previous + text
+        }
+        if type == "response.completed" {
+            guard let response = value["response"] as? [String: Any]
+            else { throw ChatGPTProtocol.error("Поток завершился без результата [CGPT_STREAM_TERMINAL]") }
+            return response
+        }
         return nil
     }
 }

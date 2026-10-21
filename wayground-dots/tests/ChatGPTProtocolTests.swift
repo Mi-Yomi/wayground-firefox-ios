@@ -61,7 +61,7 @@ struct ChatGPTProtocolTests {
         let rsaIdentity = try ChatGPTProtocol.identity(token: rsaMessage + "." + ChatGPTProtocol.base64URL(rsaSignature), keys: [rsaJWK], clientID: "oaiapp_fixture", nonce: "fixture-nonce", now: 1500)
         precondition(rsaIdentity.subject == "fixture-user")
         var stream = ChatGPTEventStream()
-        for byte in Data("data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n".utf8) {
+        for byte in Data("data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n".utf8) {
             let partial = try stream.feed(byte)
             precondition(partial == nil)
         }
@@ -73,11 +73,46 @@ struct ChatGPTProtocolTests {
         precondition(observed != nil)
         let completedData = try ChatGPTProtocol.completed(observed!)
         precondition(completedData == Data(answer.utf8))
+        let fenced: [String: Any] = ["status": "completed", "output": [["content": [["type": "output_text", "text": "```json\n" + answer + "\n```"]]]]]
+        let fencedData = try ChatGPTProtocol.completed(fenced)
+        precondition(fencedData == completedData)
+        var compact = ChatGPTEventStream()
+        func feed(_ stream: inout ChatGPTEventStream, _ value: [String: Any]) throws -> [String: Any]? {
+            let event = try JSONSerialization.data(withJSONObject: value)
+            var result: [String: Any]?
+            for byte in Data("event: message\r\ndata: ".utf8) + event + Data("\r\n\r\n".utf8) {
+                if let response = try stream.feed(byte) { result = response }
+            }
+            return result
+        }
+        let unicodeAnswer = answer.replacingOccurrences(of: "fixture", with: "Проверка: 2 + 2 = 4")
+        let split = unicodeAnswer.index(unicodeAnswer.startIndex, offsetBy: 35)
+        for text in [String(unicodeAnswer[..<split]), String(unicodeAnswer[split...])] {
+            let partial = try feed(&compact, ["type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": text])
+            precondition(partial == nil, "A partial answer must never be accepted")
+        }
+        _ = try feed(&compact, ["type": "response.output_text.done", "output_index": 0, "content_index": 0, "text": unicodeAnswer])
+        precondition(compact.outputText == unicodeAnswer, "The done event must not duplicate deltas")
+        let terminal = try feed(&compact, ["type": "response.completed", "response": ["status": "completed", "output": []]])!
+        let streamed = try ChatGPTProtocol.completed(terminal, streamedText: compact.outputText)
+        precondition(streamed == Data(unicodeAnswer.utf8))
+        reject { _ = try ChatGPTProtocol.completed(["status": "completed", "output": []]) }
+        reject { _ = try ChatGPTProtocol.completed(["status": "incomplete", "output": []], streamedText: answer) }
+        reject { _ = try ChatGPTProtocol.completed(["status": "completed", "output": [["content": [["type": "refusal"]]]]], streamedText: answer) }
+        reject { _ = try ChatGPTProtocol.completed(["status": "completed", "output": [["content": [["type": "output_text", "text": "4"]]]]]) }
+        reject { _ = try ChatGPTProtocol.completed(["status": "completed", "output": [["content": [["type": "output_text", "text": "Explanation: " + answer]]]]]) }
+        do {
+            var malformed = ChatGPTEventStream()
+            for byte in Data("data: invalid-json\n\n".utf8) { _ = try malformed.feed(byte) }
+            preconditionFailure("Malformed SSE was accepted")
+        } catch { precondition(error.localizedDescription.contains("CGPT_STREAM_JSON")) }
+        do { _ = try ChatGPTProtocol.completed(["status": "completed", "output": []]) }
+        catch { precondition(error.localizedDescription.contains("CGPT_OUTPUT_EMPTY")) }
         reject {
             var failed = ChatGPTEventStream()
             for byte in Data("data: {\"type\":\"response.failed\"}\n\n".utf8) { _ = try failed.feed(byte) }
         }
         reject { _ = try ChatGPTProtocol.completed(["status": "incomplete", "output": []]) }
-        print("ChatGPT protocol self-check passed: callback binding, PKCE, RS256/ES256 identity, claims, terminal stream and failure handling")
+        print("ChatGPT protocol self-check passed: callback, PKCE, signatures, claims, JSON fences, streamed UTF-8 text, terminal-only acceptance and specific errors")
     }
 }

@@ -257,14 +257,17 @@ final class ChatGPTConnection: NSObject, ASWebAuthenticationPresentationContextP
         request.httpMethod = "POST"
         request.setValue("Bearer " + profile.accessToken, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (bytes, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw ChatGPTProtocol.error("OpenAI отклонил запрос: проверьте вход, модель и лимиты плана") }
+        guard let http = response as? HTTPURLResponse else { throw ChatGPTProtocol.error("OpenAI вернул недопустимый HTTP-ответ [CGPT_HTTP]") }
+        guard http.statusCode == 200 else { throw ChatGPTProtocol.error("OpenAI отклонил запрос (HTTP \(http.statusCode)): проверьте вход, модель и лимиты плана") }
+        guard http.mimeType?.lowercased() == "text/event-stream" else { throw ChatGPTProtocol.error("OpenAI вернул ответ вместо потока событий [CGPT_HTTP_TYPE]") }
         var stream = ChatGPTEventStream()
         for try await byte in bytes {
             try Task.checkCancellation()
             guard epoch == generation else { throw ChatGPTProtocol.error("Аккаунт ChatGPT изменился; подсказка отменена") }
-            if let completed = try stream.feed(byte) { return try ChatGPTProtocol.completed(completed) }
+            if let completed = try stream.feed(byte) { return try ChatGPTProtocol.completed(completed, streamedText: stream.outputText) }
         }
         throw ChatGPTProtocol.error("Поток ChatGPT прерван до завершения ответа")
     }
