@@ -1,0 +1,45 @@
+name: Test guest app storage
+on:
+  workflow_dispatch:
+  push:
+    branches: [dots-ios]
+    paths:
+      - 'BrowserKit/Sources/TabDataStore/TabFileManager.swift'
+      - 'BrowserKit/Tests/TabDataStoreTests/TabFileManagerTests.swift'
+      - '.github/workflows/wayground-storage-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a focused upstream test scheme
+        run: |
+          mkdir -p build
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          directory = Path('firefox-ios/Client.xcodeproj/xcshareddata/xcschemes')
+          upstream = ET.parse(directory / 'Fennec.xcscheme')
+          testable = next(t for t in upstream.findall('.//TestableReference') if t.find('BuildableReference').get('BlueprintIdentifier') == 'TabDataStoreTests')
+          scheme = ET.Element('Scheme', version='1.7')
+          ET.SubElement(ET.SubElement(scheme, 'BuildAction', buildImplicitDependencies='YES'), 'BuildActionEntries')
+          action = ET.SubElement(scheme, 'TestAction', buildConfiguration='Debug', selectedDebuggerIdentifier='Xcode.DebuggerFoundation.Debugger.LLDB', selectedLauncherIdentifier='Xcode.IDEFoundation.Launcher.PosixSpawn', shouldUseLaunchSchemeArgsEnv='YES')
+          ET.SubElement(action, 'Testables').append(testable)
+          ET.ElementTree(scheme).write(directory / 'WaygroundStorageTests.xcscheme', encoding='utf-8', xml_declaration=True)
+          PY
+      - name: Test storage without App Group
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available --json > build/devices.json
+          DEVICE=$(python3 -c 'import json; data=json.load(open("build/devices.json")); print(next(d["udid"] for ds in data["devices"].values() for d in ds if d["name"].startswith("iPhone") and d.get("isAvailable")))')
+          xcodebuild -project firefox-ios/Client.xcodeproj -scheme WaygroundStorageTests -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath build/StorageTests -skipMacroValidation -only-testing:TabDataStoreTests/TabFileManagerTests CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= test > build/storage-tests.log 2>&1 || { grep -n 'error:' build/storage-tests.log | tail -n 30; tail -n 80 build/storage-tests.log; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Wayground-storage-tests
+          path: build/storage-tests.log
