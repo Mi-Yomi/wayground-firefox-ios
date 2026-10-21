@@ -15,4 +15,7 @@ assert.match(removal, /SecItemDelete\(keychainQueryDictionary as CFDictionary\)/
 const source = await readFile(path.join(root, 'wayground-dots/src/WaygroundDotsBridge.swift'));
 const target = await readFile(path.join(root, 'firefox-ios/Client/WaygroundDotsBridge.swift'));
 assert.equal(source.toString().replaceAll('\r\n', '\n'), target.toString().replaceAll('\r\n', '\n'), 'Native bridge source and app target differ');
-console.log('Fork safety checks passed: Keychain cleanup is service-scoped, bridge sources match');
+const accounts = await readFile(path.join(root, 'firefox-ios/RustFxA/RustFirefoxAccounts.swift'), 'utf8');
+assert.doesNotMatch(accounts, /fatalError\("Missing or invalid 'MozDevelopmentTeam'/);
+assert.match(accounts, /let accessGroupIdentifier = accessGroupPrefix\.flatMap/);
+console.log('Fork safety checks passed: service-scoped Keychain, optional FxA signing group, matching bridge');

@@ -31,6 +31,11 @@ client.build_configurations.each do |configuration|
   configuration.build_settings['ENABLE_DEBUG_DYLIB'] = 'NO'
 end
 project.save
+info_path = File.join(root, 'firefox-ios/Client/Info.plist')
+info = Xcodeproj::Plist.read_from_path(info_path)
+info.delete('MozDevelopmentTeam')
+info['CFBundleVersion'] = '2'
+Xcodeproj::Plist.write_to_path(info, info_path)
 icon_dir = File.join(root, 'firefox-ios/Client/Assets/AppIcons.xcassets/WaygroundIcon.appiconset')
 FileUtils.mkdir_p(icon_dir)
 FileUtils.cp(File.join(root, 'wayground-dots/extension/icon-1024.png'), File.join(icon_dir, 'icon.png'))

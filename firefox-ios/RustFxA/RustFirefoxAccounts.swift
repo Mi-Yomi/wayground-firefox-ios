@@ -217,10 +217,11 @@ public final class RustFirefoxAccounts: @unchecked Sendable {
             deviceType: type,
             capabilities: capabilities
         )
-        guard let accessGroupPrefix = Bundle.main.object(forInfoDictionaryKey: "MozDevelopmentTeam") as? String else {
-            fatalError("Missing or invalid 'MozDevelopmentTeam' key in Info.plist")
+        // Guest apps use their default Keychain group, not Mozilla's signing team's group.
+        let accessGroupPrefix = Bundle.main.object(forInfoDictionaryKey: "MozDevelopmentTeam") as? String
+        let accessGroupIdentifier = accessGroupPrefix.flatMap { prefix in
+            prefix.isEmpty ? nil : AppInfo.keychainAccessGroupWithPrefix(prefix)
         }
-        let accessGroupIdentifier = AppInfo.keychainAccessGroupWithPrefix(accessGroupPrefix)
         return FxAccountManager(
             config: config,
             deviceConfig: deviceConfig,

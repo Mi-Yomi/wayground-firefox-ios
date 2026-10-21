@@ -9,6 +9,7 @@ on:
       - 'BrowserKit/Sources/TabDataStore/TabFileManager.swift'
       - 'BrowserKit/Tests/TabDataStoreTests/TabFileManagerTests.swift'
       - 'firefox-ios/Storage/RustKeychain.swift'
+      - 'firefox-ios/RustFxA/RustFirefoxAccounts.swift'
       - '.github/workflows/wayground-ipa.yml'
 permissions:
   contents: read
