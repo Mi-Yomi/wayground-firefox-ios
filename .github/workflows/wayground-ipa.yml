@@ -6,6 +6,8 @@ on:
     paths:
       - 'wayground-dots/**'
       - 'firefox-ios/Client/WaygroundDots*'
+      - 'BrowserKit/Sources/TabDataStore/TabFileManager.swift'
+      - 'BrowserKit/Tests/TabDataStoreTests/TabFileManagerTests.swift'
       - '.github/workflows/wayground-ipa.yml'
 permissions:
   contents: read
@@ -45,6 +47,7 @@ jobs:
       - name: Build device app
         run: |
           set -o pipefail
+          mkdir -p build
           xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -clonedSourcePackagesDirPath build/SourcePackages -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/wayground-build.log 2>&1 || { tail -n 100 build/wayground-build.log; exit 1; }
       - name: Package IPA
         run: bash wayground-dots/scripts/package.sh

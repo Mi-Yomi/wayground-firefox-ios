@@ -49,6 +49,13 @@ final class TabFileManagerTests: XCTestCase {
         XCTAssertEqual(retrievedSessionData, sessionData)
     }
 
+    func testDirectoriesFallBackToDocumentsWithoutAppGroup() throws {
+        let subject = DefaultTabFileManager(fileManager: NoAppGroupFileManager())
+        XCTAssertEqual(subject.tabSessionDataDirectory()?.path, "/dots-test/profile.profile/tab-session-data")
+        XCTAssertEqual(subject.windowDataDirectory(isBackup: false)?.path, "/dots-test/profile.profile/window-data")
+        XCTAssertEqual(subject.windowDataDirectory(isBackup: true)?.path, "/dots-test/profile.profile/window-data-backup")
+    }
+
     // MARK: - Legacy tab group data checks
     // Tab group data was removed as part of FXIOS-11987, but we still want to properly decode TabData() that
     // include `tabGroupData`.
@@ -168,5 +175,12 @@ final class TabFileManagerTests: XCTestCase {
         return WindowData(id: defaultTestTabWindowUUID,
                           activeTabId: tabs[0].id,
                           tabData: tabs)
+    }
+}
+
+private final class NoAppGroupFileManager: FileManager, @unchecked Sendable {
+    override func containerURL(forSecurityApplicationGroupIdentifier groupIdentifier: String) -> URL? { nil }
+    override func urls(for directory: FileManager.SearchPathDirectory, in domainMask: FileManager.SearchPathDomainMask) -> [URL] {
+        [URL(fileURLWithPath: "/dots-test")]
     }
 }

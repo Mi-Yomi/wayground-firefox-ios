@@ -15,7 +15,7 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
     private let keys: Set<String> = ["aiConfig", "widgetPosition", "widgetAppearance", "source", "sources",
                                      "sourcesRevision", "themeEnabled", "ios.tab-context.v1", "ios.ai-results.v1",
                                      "remoteConnection", "remoteBootstrapImported", "codexModelsCache"]
-    private var sequence = 0
+    private var sequence = Int.random(in: 1_000_000...2_000_000_000)
     private var approvedOrigins = Set<String>()
     private var jobs = [String: Task<DotsHTTPResponse, Error>]()
     private lazy var session: URLSession = {
@@ -289,13 +289,11 @@ final class WaygroundDotsBridge: NSObject, WKScriptMessageHandlerWithReply, URLS
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
         guard let presenter = responder as? UIViewController, presenter.presentedViewController == nil
         else { throw fail("Не удалось открыть окно настроек") }
-        let controller = DotsSettingsController()
         let settingsView = WKWebView(frame: .zero)
+        let controller = DotsSettingsController(webView: settingsView, pageURL: url)
         let context = context(for: settingsView, settings: true)
         settingsView.configuration.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "waygroundDots")
         settingsView.configuration.userContentController.addUserScript(WKUserScript(source: prefix(context), injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        controller.view = settingsView
-        controller.pageURL = url
         settingsView.navigationDelegate = controller
         settingsView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         presenter.present(UINavigationController(rootViewController: controller), animated: true)
@@ -348,7 +346,15 @@ private final class DotsContext: NSObject {
 
 @MainActor
 private final class DotsSettingsController: UIViewController, WKNavigationDelegate {
-    var pageURL: URL?
+    private let webView: WKWebView
+    private let pageURL: URL
+    init(webView: WKWebView, pageURL: URL) {
+        self.webView = webView
+        self.pageURL = pageURL
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { nil }
+    override func loadView() { view = webView }
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "Wayground Dots"
@@ -357,6 +363,6 @@ private final class DotsSettingsController: UIViewController, WKNavigationDelega
         })
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
-        navigationAction.request.url?.standardizedFileURL == pageURL?.standardizedFileURL ? .allow : .cancel
+        navigationAction.request.url?.standardizedFileURL == pageURL.standardizedFileURL ? .allow : .cancel
     }
 }

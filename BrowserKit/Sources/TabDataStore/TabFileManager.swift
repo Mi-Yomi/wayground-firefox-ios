@@ -75,7 +75,7 @@ public struct DefaultTabFileManager: TabFileManager {
 
     public func tabSessionDataDirectory() -> URL? {
         guard let containerID = BrowserKitInformation.shared.sharedContainerIdentifier else { return nil }
-        var containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: containerID)
+        var containerURL = containerDirectory(containerID)
         containerURL = containerURL?.appendingPathComponent(PathInfo.rootDirectory)
         return containerURL?.appendingPathComponent(PathInfo.tabSessionData)
     }
@@ -90,12 +90,18 @@ public struct DefaultTabFileManager: TabFileManager {
             return nil
         }
         let pathInfo = isBackup ? PathInfo.backup : PathInfo.primary
-        guard let containerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: containerID) else {
+        guard let containerURL = containerDirectory(containerID) else {
             logger.log("Failed to get the window data container URL", level: .warning, category: .tabs)
             return nil
         }
         let appendedURL = containerURL.appendingPathComponent(PathInfo.rootDirectory)
         return appendedURL.appendingPathComponent(pathInfo)
+    }
+
+    private func containerDirectory(_ identifier: String) -> URL? {
+        // Guest extensions are absent, so keep the same Documents fallback as ProfileFileAccessor.
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: identifier)
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
     }
 
     public func contentsOfDirectory(at path: URL) -> [URL] {
