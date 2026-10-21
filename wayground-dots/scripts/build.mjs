@@ -3,7 +3,7 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const input = path.resolve(process.argv[2] || path.join(root, '../extension'));
+const input = path.resolve(process.argv[2] || path.join(root, 'extension'));
 const output = path.resolve(process.argv[3] || path.join(root, 'resources'));
 const manifest = JSON.parse(await readFile(path.join(input, 'manifest.json'), 'utf8'));
 const read = file => readFile(path.join(input, file), 'utf8');
