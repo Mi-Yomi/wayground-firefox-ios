@@ -1,0 +1,82 @@
+{
+  "manifest_version": 3,
+  "name": "Wayground Dots for iPhone",
+  "version": "0.1.0",
+  "description": "Индикатор публичных ключей и включаемых подсказок ИИ для Wayground в Safari.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://wayground.com/*",
+    "https://www.wayground.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "scripts": [
+      "quiz-core.js",
+      "appearance.js",
+      "matcher.js",
+      "quiz-data.js",
+      "auto-source.js",
+      "ai-core.js",
+      "ai-provider.js",
+      "ai-background.js",
+      "ios-session.js",
+      "ios-ai.js",
+      "background.js"
+    ],
+    "persistent": false
+  },
+  "action": {
+    "default_title": "Wayground Dots",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon-48.png",
+      "96": "icon-96.png",
+      "128": "icon-128.png",
+      "1024": "icon-1024.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "48": "icon-48.png",
+    "96": "icon-96.png",
+    "128": "icon-128.png",
+    "1024": "icon-1024.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://wayground.com/*",
+        "https://www.wayground.com/*"
+      ],
+      "js": [
+        "appearance.js",
+        "matcher.js",
+        "ai-core.js",
+        "ai-fallback.js",
+        "dom-adapter.js",
+        "page-state.js",
+        "widget-ui.js",
+        "ios-cover.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "browser_specific_settings": {
+    "safari": {
+      "strict_min_version": "17.0"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}

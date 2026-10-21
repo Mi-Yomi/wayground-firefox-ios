@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Wayground Dots — iPhone</title><link rel="stylesheet" href="mobile.css"></head>
+<body><main>
+  <p class="eyebrow">WAYGROUND DOTS · IPHONE · 0.1.0</p><h1>Подключение ИИ</h1>
+  <p>Зелёный кружок — публичный ключ, жёлтый — предположение ИИ. Модель может ошибаться.</p>
+  <p id="current" role="status">Загружаем настройки…</p>
+  <form id="connection">
+    <label class="switch"><input id="enabled" type="checkbox"><span>Использовать ИИ, когда нет ключа</span></label>
+    <label for="provider">Провайдер</label><select id="provider"><option value="openai">OpenAI · Responses API</option><option value="gemini">Google Gemini</option><option value="compatible">OpenAI-совместимый API</option></select>
+    <section id="custom-endpoint" hidden><label for="endpoint">HTTPS-адрес API</label><input id="endpoint" type="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://ваш-провайдер/v1"><p class="hint">На iPhone localhost означает сам телефон. В этой сборке поддерживаются HTTPS-адреса.</p></section>
+    <label for="model">Модель</label><input id="model" type="text" maxlength="150" required autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ID модели у вашего провайдера">
+    <label for="token">API-ключ</label><input id="token" type="password" maxlength="4096" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Ключ выбранного провайдера">
+    <p class="hint">Ключ хранится в локальном хранилище расширения Safari. Сохранённое значение не отображается. Пустое поле оставляет прежний ключ только для того же провайдера и адреса.</p>
+    <label class="switch"><input id="images" type="checkbox"><span>Разрешить отправку изображений вопроса и вариантов</span></label>
+    <div class="actions"><button type="submit" id="save">Сохранить настройки</button><button type="button" id="test" disabled>Проверить ИИ</button><button type="button" id="remove" class="secondary">Удалить ключ и настройки</button></div>
+  </form><p id="result" role="status" aria-live="polite"></p>
+  <details><summary>Как работает версия для iPhone</summary><p>Открывайте Wayground в Safari. Включите расширение в настройках Safari и разрешите ему доступ к wayground.com. Панель кружков открывается через кнопку расширений Safari.</p><p>Запрос идёт напрямую выбранному API: текущий вопрос, варианты и разрешённые изображения. PIN, имя игрока и cookies Wayground в запрос ИИ не включаются. Проверка «2 + 2» расходует лимит API. ИИ не выбирает ответ за вас; срок 20 секунд не гарантируется.</p><p>Вход через локальный компонент Codex для Windows в эту сборку не входит. API-ключ и подписка ChatGPT — разные способы подключения. Сервер проекта не используется.</p><p>Готовые подсказки повторно используются до 10 минут, чтобы выгрузка фонового процесса Safari не вызывала повторный запрос того же вопроса. Просроченные записи удаляются при следующей записи кэша; при смене настроек кэш очищается. Незавершённый запрос после закрытия Safari может быть потерян.</p></details>
+</main><script src="ai-core.js"></script><script src="options.js"></script></body></html>

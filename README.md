@@ -1,3 +1,7 @@
+# Wayground Browser for iPhone
+
+Firefox iOS fork with built-in Wayground Dots. Build and LiveContainer import instructions: [wayground-dots/README.md](wayground-dots/README.md). Base: Firefox 158.1; iOS 17+. IPA availability and device compatibility must be verified separately.
+
 # Firefox for iOS and Focus iOS
 
 Download [Firefox iOS](https://apps.apple.com/app/firefox-web-browser/id989804926) and [Focus iOS](https://itunes.apple.com/app/id1055677337) on the App Store.

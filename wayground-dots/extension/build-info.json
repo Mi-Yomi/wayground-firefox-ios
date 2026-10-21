@@ -1,0 +1,7 @@
+{
+  "platform": "safari-ios",
+  "version": "0.1.0",
+  "sharedDesktopVersion": "0.6.10",
+  "nativeCodex": false,
+  "minimumSafari": "17.0"
+}

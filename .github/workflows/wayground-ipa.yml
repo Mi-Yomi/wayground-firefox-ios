@@ -1,0 +1,66 @@
+name: Build Wayground IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [dots-ios]
+    paths:
+      - 'wayground-dots/**'
+      - 'firefox-ios/Client/WaygroundDots*'
+      - '.github/workflows/wayground-ipa.yml'
+permissions:
+  contents: read
+concurrency:
+  group: wayground-ipa-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+      WG_DOTS_RESOURCES: firefox-ios/Client/WaygroundDotsResources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify native bridge and JavaScript
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" -target arm64-apple-ios17.0 -swift-version 6 wayground-dots/src/WaygroundDotsBridge.swift
+          node wayground-dots/scripts/build.mjs wayground-dots/extension "$WG_DOTS_RESOURCES"
+          node --test wayground-dots/tests/*.test.mjs
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: ios-packages-${{ runner.arch }}-${{ hashFiles('firefox-ios/Client.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'BrowserKit/Package.swift') }}
+      - name: Bootstrap Firefox
+        run: ./bootstrap.sh firefox
+      - name: Configure app target
+        run: |
+          gem install xcodeproj -v 1.27.0 --no-document
+          ruby wayground-dots/scripts/configure.rb
+      - name: Build device app
+        run: |
+          set -o pipefail
+          xcodebuild -project firefox-ios/Client.xcodeproj -scheme Wayground -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/Dots -clonedSourcePackagesDirPath build/SourcePackages -jobs 3 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= CODE_SIGN_ENTITLEMENTS= COMPILER_INDEX_STORE_ENABLE=NO build > build/wayground-build.log 2>&1 || { tail -n 100 build/wayground-build.log; exit 1; }
+      - name: Package IPA
+        run: bash wayground-dots/scripts/package.sh
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaygroundBrowser-IPA
+          path: |
+            build/WaygroundBrowser.ipa
+            build/WaygroundBrowser.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaygroundBrowser-build-log
+          path: build/wayground-build.log
+          if-no-files-found: ignore

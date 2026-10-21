@@ -115,6 +115,9 @@ class UserScriptManager {
         // Start off by ensuring that any previously-added user scripts are
         // removed to prevent the same script from being injected twice.
         webView?.configuration.userContentController.removeAllUserScripts()
+        if let webView {
+            WaygroundDotsBridge.shared.install(in: webView)
+        }
 
         // Inject all pre-compiled user scripts.
         [(WKUserScriptInjectionTime.atDocumentStart, mainFrameOnly: false),
